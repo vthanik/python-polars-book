@@ -63,8 +63,8 @@ def fetch_and_convert(name: str, url: str, dest_dir: Path) -> None:
         else:
             return
 
-    df_pd, meta = pyreadstat.read_xport(str(xpt_path))
-    df_pl = pl.from_pandas(df_pd)
+    data, meta = pyreadstat.read_xport(str(xpt_path), output_format="dict")
+    df_pl = pl.DataFrame(data)
     df_pl.write_parquet(parquet_path)
     xpt_path.unlink()
     print(f"  [done]  {parquet_path.name}  ({len(df_pl)} rows × {len(df_pl.columns)} cols)")
