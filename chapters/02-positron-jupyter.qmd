@@ -1,0 +1,45 @@
+# Ch 2 — Positron + JupyterLab Mastery
+
+> **Idea:** The best IDE is the one you can operate without thinking. Every extra mouse click is cognitive overhead you could spend understanding code.
+
+**Milestone:** Run a `.qmd` cell, jump to definition, restart kernel, and inspect a Polars DataFrame in the variables pane — without touching the mouse.
+
+---
+
+## TODO: Write full chapter content
+
+### Section outline
+
+- 2.1 The two editors compared: when to use Positron, when to use JupyterLab
+- 2.2 Positron setup: kernel selection, variables pane, data viewer for Polars DataFrames
+- 2.3 Positron keyboard shortcuts (the 12 that matter)
+  - `Ctrl+Enter` — run current line/selection
+  - `Shift+Enter` — run cell and advance
+  - `Ctrl+Shift+P` — command palette
+  - `F12` — go to definition
+  - `Ctrl+.` — quick fix
+  - `Ctrl+Shift+\`` — new terminal
+- 2.4 JupyterLab: launch, interface, the cell mode vs edit mode distinction
+- 2.5 JupyterLab keyboard shortcuts (the 15 that matter)
+  - Cell mode: `dd` delete, `a`/`b` insert above/below, `m`/`y` markdown/code, `Shift+Enter` run
+  - Edit mode: `Ctrl+/` comment, `Tab` autocomplete
+  - `Ctrl+Shift+C` — command palette
+- 2.6 Magic commands: `%timeit`, `%who`, `%run`, `%load_ext autoreload`, `%debug`
+- 2.7 Round-tripping `.qmd` ↔ `.ipynb`
+- 2.8 Debugging: breakpoints in Positron, `%debug` post-mortem in JupyterLab
+- 2.9 `nbstripout` — strip outputs before git commit
+
+**Pitfalls to cover:**
+- Stale kernel state (when to restart-and-run-all)
+- `autoreload` not picking up changes in the installed package (reinstall with `uv pip install -e .`)
+- Polars DataFrames may not render in the variables pane without the right extension
+
+---
+
+## Recap (stub)
+
+1. Positron for `.qmd` editing and running code interactively; JupyterLab for notebook workflows.
+2. Restart kernel when output looks wrong — stale state is the #1 debugging time-waster.
+3. `%load_ext autoreload` + `%autoreload 2` — auto-reload your library code when it changes.
+4. `%timeit` — benchmark before optimizing.
+5. `F12` (go to definition) in Positron is your best friend for exploring library code.

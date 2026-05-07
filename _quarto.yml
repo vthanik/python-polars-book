@@ -1,0 +1,54 @@
+project:
+  type: book
+  output-dir: _book
+
+book:
+  title: "Modern Python for Clinical Programmers"
+  subtitle: "From Foundations to Library Authoring with Polars"
+  author: "Vignesh Thanikachalam"
+  date: "2026-05-07"
+  date-format: "YYYY-MM-DD"
+  repo-url: https://github.com/vt704670/python_polars_book
+  repo-actions: [edit]
+
+  chapters:
+    - index.qmd
+    - part: "Part 1 — Setup & IDE"
+      chapters:
+        - chapters/01-toolchain.qmd
+        - chapters/02-positron-jupyter.qmd
+    - part: "Part 2 — Python Core"
+      chapters:
+        - chapters/03-foundations.qmd
+        - chapters/04-functions-errors-files.qmd
+        - chapters/05-classes-modern-idioms.qmd
+    - part: "Part 3 — Library Authoring"
+      chapters:
+        - chapters/06-library-authoring.qmd
+    - part: "Part 4 — Polars"
+      chapters:
+        - chapters/07-polars-core.qmd
+        - chapters/08-polars-advanced.qmd
+
+format:
+  html:
+    theme:
+      light: flatly
+      dark: darkly
+    code-fold: false
+    code-tools: true
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    highlight-style: github
+    df-print: paged
+
+execute:
+  freeze: auto
+  cache: true
+  warning: false
+  message: false
+
+knitr:
+  opts_chunk:
+    comment: "#>"

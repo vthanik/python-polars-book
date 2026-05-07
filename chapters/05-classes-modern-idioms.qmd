@@ -1,0 +1,76 @@
+# Ch 5 — Classes & Modern Idioms
+
+> **Idea:** Reach for a dataclass when you need to bundle related data with a name. Write a decorator when you need to wrap behavior. Use stdlib itertools before writing a loop.
+
+**Milestone:** Build a `StudyConfig` dataclass holding study metadata (study_id, datadate, treatment_arms), implement `__repr__`, `__eq__`, and a `from_dict` classmethod, with full type hints. No external deps beyond stdlib.
+
+---
+
+## TODO: Write full chapter content
+
+### Section outline
+
+- 5.1 Classes — when you actually need one vs a function or dict
+- 5.2 `@dataclass` deep dive: `field()`, `default_factory`, `frozen=True`, `slots=True`, `kw_only=True`
+- 5.3 The dunders that matter: `__init__`, `__repr__`, `__str__`, `__eq__`, `__hash__`, `__len__`, `__iter__`, `__contains__`, `__enter__`/`__exit__`
+- 5.4 `@property` and `@cached_property`
+- 5.5 `@classmethod` (alternate constructors) and `@staticmethod`
+- 5.6 Inheritance and composition — when each is appropriate
+- 5.7 Writing a decorator: the `@timeit` example using `functools.wraps`
+- 5.8 Generators deep-dive: writing `__iter__`/`__next__`, `yield from`, generator pipelines
+- 5.9 stdlib short-list: `datetime`, `itertools`, `functools`, `collections`, `enum`
+
+### Milestone solution (stub)
+
+```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from datetime import date
+
+
+@dataclass
+class StudyConfig:
+    """Configuration for a clinical study analysis."""
+    study_id: str
+    datadate: date
+    treatment_arms: list[str] = field(default_factory=list)
+    analyst: str = "unknown"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> StudyConfig:
+        return cls(
+            study_id=d["study_id"],
+            datadate=date.fromisoformat(d["datadate"]),
+            treatment_arms=d.get("treatment_arms", []),
+            analyst=d.get("analyst", "unknown"),
+        )
+
+    def is_complete(self) -> bool:
+        return bool(self.treatment_arms)
+
+
+cfg = StudyConfig.from_dict({
+    "study_id": "300382",
+    "datadate": "2025-12-15",
+    "treatment_arms": ["C120", "T200/C240", "T300/C400"],
+    "analyst": "vt704670",
+})
+print(cfg)
+print(cfg.is_complete())
+```
+
+**Pitfalls to cover:**
+- Mutable dataclass default: `field: list[str] = []` raises `ValueError` — use `field(default_factory=list)`
+- `__hash__` becomes `None` when you add `__eq__` to a non-frozen dataclass
+- Decorator that forgets `@functools.wraps(fn)` — loses the original function's name/docstring
+- `cached_property` is not thread-safe; for Polars computations that's usually fine
+
+---
+
+## Recap (stub)
+
+1. `@dataclass` is your first tool for bundling data. `frozen=True` makes it hashable (usable as dict key).
+2. `__repr__` is for debugging (what you see in `print(obj)`). `__str__` is for users. If only one, implement `__repr__`.
+3. `@classmethod` creates alternate constructors (`from_dict`, `from_yaml`, `from_parquet`).
+4. Write a decorator by wrapping a function in another function — use `functools.wraps` to preserve metadata.
+5. `itertools.chain`, `groupby`, `accumulate` solve most sequence-processing problems without a loop.

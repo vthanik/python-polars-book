@@ -1,0 +1,420 @@
+# Ch 6 — Build, Test, Document & Publish a Library
+
+> **Idea:** A Python library is just a directory with `__init__.py` and a `pyproject.toml`. Everything else (testing, docs, packaging, publishing) is tooling layered on top of that simple fact.
+
+**Milestone:** The `clintools` package builds a wheel with `uv build`, installs editable with `uv pip install -e .`, passes `pytest`, shows API docs at `mkdocs serve`, and publishes a wheel to TestPyPI.
+
+---
+
+## 6.1 Why the `src/` layout
+
+The most common mistake when packaging a Python library is putting the package at the project root:
+
+```
+my_project/          ← project root
+├── clintools/        ← WRONG: package lives here
+│   └── __init__.py
+└── pyproject.toml
+```
+
+The problem: when you run `pytest` from `my_project/`, Python finds `clintools/` on the path *before* the installed package. You can import your package without installing it, which hides bugs related to packaging.
+
+The fix — the `src/` layout:
+
+```
+my_project/
+├── src/
+│   └── clintools/    ← package lives here, under src/
+│       └── __init__.py
+└── pyproject.toml
+```
+
+Now `import clintools` only works after `uv pip install -e .`. If you can import it, it is properly installed.
+
+```
+src/ layout import flow:
+┌──────────────┐   uv pip install -e .   ┌──────────────────┐
+│  src/        │  ──────────────────────► │  .venv/lib/      │
+│  clintools/  │                          │  site-packages/  │
+│  __init__.py │                          │  clintools → src/│
+└──────────────┘                          └──────────────────┘
+                                                   │
+                                          import clintools  ✓
+```
+
+---
+
+## 6.2 `pyproject.toml` — the one config file that rules them all
+
+```{python}
+#| label: show-pyproject
+from pathlib import Path
+print(Path("pyproject.toml").read_text(encoding="utf-8"))
+```
+
+Key sections explained:
+
+```toml
+[project]
+name = "clintools"           # what you type: pip install clintools
+version = "0.1.0"            # semver: MAJOR.MINOR.PATCH
+requires-python = ">=3.11"   # enforced at install time
+
+dependencies = [
+    "polars>=1.0.0",         # runtime deps (always installed)
+    "pyreadstat>=1.2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]    # uv add --dev, or uv sync --extra dev
+docs = ["mkdocs", ...]
+
+[project.scripts]
+clintools = "clintools.__main__:main"   # creates a CLI command
+```
+
+### Versioning with semver
+
+```
+0.1.0
+│ │ └─ PATCH: bug fix, no API change
+│ └─── MINOR: new feature, backward compatible
+└───── MAJOR: breaking change (existing callers must update)
+```
+
+For clinical libraries: **be conservative**. Any change to a function signature that breaks a caller is a MAJOR bump, even in internal tools. Regulatory audit trails trace which version produced which output.
+
+### Single source of version truth
+
+```{python}
+#| label: version-truth
+# In src/clintools/__init__.py, NOT repeated in pyproject.toml:
+# __version__ = "0.1.0"  ← hardcoded in one place only
+
+# Then in your code:
+import importlib.metadata
+version = importlib.metadata.version("clintools")
+print(version)   # "0.1.0"
+```
+
+---
+
+## 6.3 Package structure — what goes where
+
+```
+src/clintools/
+├── __init__.py         ← public API: what `import clintools` exposes
+├── demographics.py     ← subject-level summary functions
+├── safety.py           ← AE summary functions (future)
+├── exceptions.py       ← custom exception classes
+└── _io.py              ← internal helpers (underscore = not public)
+```
+
+`__init__.py` controls what `from clintools import ...` sees:
+
+```python
+# src/clintools/__init__.py
+from clintools.demographics import subject_summary, ae_summary
+from clintools.exceptions import StudyDataError
+
+__all__ = ["subject_summary", "ae_summary", "StudyDataError"]
+__version__ = "0.1.0"
+```
+
+::: {.callout-warning}
+## Pitfall: `__init__.py` doing too much
+Keep `__init__.py` as a thin re-export file. Heavy logic in `__init__.py` slows import time and creates circular import risks. Put logic in submodules.
+:::
+
+---
+
+## 6.4 Imports — absolute vs relative
+
+```python
+# Inside src/clintools/demographics.py:
+
+# Absolute import (preferred):
+from clintools.exceptions import StudyDataError
+
+# Relative import (also valid, shorter for deeply nested packages):
+from .exceptions import StudyDataError
+
+# Never use implicit relative imports (Python 2 style) — they don't work in 3
+```
+
+**Rule:** Use absolute imports everywhere except when two submodules in the same package need to reference each other directly.
+
+---
+
+## 6.5 Writing and running tests with pytest
+
+### File layout
+
+```
+tests/
+├── conftest.py          ← shared fixtures
+└── test_demographics.py
+```
+
+### The AAA pattern (Arrange-Act-Assert)
+
+```{python}
+#| label: pytest-example
+# tests/test_demographics.py
+import polars as pl
+import pytest
+from pathlib import Path
+
+# We'll build clintools properly in the capstone chapter
+# For now, illustrate the pattern:
+
+def n_by_treatment(df: pl.DataFrame) -> dict[str, int]:
+    return (
+        df.group_by("TRT01A")
+        .agg(pl.len().alias("n"))
+        .sort("TRT01A")
+        .rows_by_key("TRT01A", unique=True)
+    )
+
+
+def test_n_by_treatment_counts_correctly():
+    # Arrange
+    df = pl.DataFrame({
+        "USUBJID": ["A", "B", "C", "D"],
+        "TRT01A":  ["Drug", "Placebo", "Drug", "Drug"],
+    })
+
+    # Act
+    result = n_by_treatment(df)
+
+    # Assert
+    assert result["Drug"][0] == 3
+    assert result["Placebo"][0] == 1
+```
+
+### Fixtures — reusable test setup
+
+```python
+# tests/conftest.py
+import polars as pl
+import pytest
+
+@pytest.fixture
+def synthetic_adsl() -> pl.DataFrame:
+    """Minimal ADSL-shaped frame for testing."""
+    return pl.DataFrame({
+        "USUBJID": [f"01-{i:03d}" for i in range(1, 11)],
+        "SAFFL":   ["Y"] * 8 + ["N"] * 2,
+        "TRT01A":  ["Drug A"] * 5 + ["Placebo"] * 3 + ["Drug A", "Placebo"],
+        "AGE":     [65, 72, 58, 61, 70, 45, 53, 68, 77, 50],
+        "SEX":     ["M", "F", "M", "F", "M", "F", "M", "F", "M", "F"],
+    })
+```
+
+```python
+# tests/test_demographics.py  (using the fixture)
+def test_safety_population_filters_correctly(synthetic_adsl):
+    saf = synthetic_adsl.filter(pl.col("SAFFL").eq("Y"))
+    assert len(saf) == 8
+```
+
+### Running tests
+
+```powershell
+uv run pytest                    # run all tests
+uv run pytest -v                 # verbose
+uv run pytest tests/test_demo.py # specific file
+uv run pytest --cov=clintools    # with coverage
+```
+
+### Parametrize — test multiple inputs at once
+
+```python
+@pytest.mark.parametrize("age,expected", [
+    (65, "65-74"),
+    (72, "65-74"),
+    (58, "<65"),
+    (80, ">=75"),
+])
+def test_age_group(age: int, expected: str) -> None:
+    from clintools.demographics import age_group
+    assert age_group(age) == expected
+```
+
+---
+
+## 6.6 Type checking with mypy/pyright
+
+Type hints don't enforce types at runtime — they are checked by a **static type checker** run as a separate tool.
+
+```powershell
+uv run mypy src/clintools          # check the package
+uv run mypy src/clintools --strict # maximum strictness
+```
+
+When mypy flags something, read the error carefully. Common patterns:
+
+```python
+# Error: "Argument 1 has incompatible type 'str | None'; expected 'str'"
+def get_subj(id: str | None) -> str:
+    return id.upper()   # wrong: id might be None
+
+# Fix: narrow the type first
+def get_subj(id: str | None) -> str:
+    if id is None:
+        raise ValueError("id required")
+    return id.upper()
+```
+
+Use `# type: ignore[assignment]` — never bare `# type: ignore` — when you must suppress a warning and you know why.
+
+---
+
+## 6.7 Linting and formatting with `ruff`
+
+```powershell
+uv run ruff check src/     # lint: find problems
+uv run ruff format src/    # format: fix style (replaces black)
+uv run ruff check --fix src/  # lint + auto-fix what it can
+```
+
+`ruff` replaces `flake8` + `black` + `isort` — one tool, one config section in `pyproject.toml`, 100× faster.
+
+The rules in `pyproject.toml` already configured for you:
+
+```toml
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+```
+
+`UP` = upgrade to modern Python syntax, `B` = likely bugs, `SIM` = simplify.
+
+---
+
+## 6.8 Documentation with mkdocs
+
+```powershell
+uv run mkdocs serve     # live preview at http://localhost:8000
+uv run mkdocs build     # build to site/
+```
+
+`mkdocstrings` auto-generates API docs from your docstrings. If you write:
+
+```python
+def subject_summary(df: pl.DataFrame, saffl: str = "Y") -> pl.DataFrame:
+    """Compute subject-level demographics summary.
+
+    Args:
+        df: ADSL-shaped DataFrame. Must contain USUBJID, TRT01A, AGE, SEX, SAFFL.
+        saffl: Safety population flag value to filter on.
+
+    Returns:
+        One row per treatment arm with n, mean_age, pct_female.
+
+    Raises:
+        StudyDataError: If required columns are missing.
+    """
+```
+
+Then `mkdocstrings` renders this as a formatted API page automatically.
+
+---
+
+## 6.9 Pharma-grade authoring: the layer no general book covers
+
+### Validation mindset for regulatory outputs
+
+When your library produces TFL-adjacent outputs (demographics tables, AE summaries), it must be auditable:
+
+1. **Every release is versioned** — `v0.1.0`, `v0.1.1`. Never "the latest version."
+2. **`uv.lock` is committed** — lockfile pins all transitive deps. A reviewer can reproduce your environment exactly.
+3. **Tests verify known correct outputs** — not just "doesn't crash" but "produces the same numbers as the validated SAS program."
+
+### Logging and traceability
+
+```{python}
+#| label: logging-example
+import logging
+import hashlib
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+def subject_summary(adsl_path: Path) -> None:
+    # Log the input file hash — regulatory traceability
+    content = adsl_path.read_bytes()
+    file_hash = hashlib.sha256(content).hexdigest()[:12]
+    logger.info("Input: %s (sha256: %s)", adsl_path.name, file_hash)
+
+    # ... processing ...
+    logger.info("Output written. N_SAF = %d", 229)
+```
+
+Set up logging in your main script:
+
+```python
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+)
+```
+
+Now every run produces a log like:
+
+```
+2026-05-07 09:14:02  INFO      clintools.demographics  Input: adsl.parquet (sha256: 4e3a1b...)
+2026-05-07 09:14:02  INFO      clintools.demographics  Output written. N_SAF = 229
+```
+
+This goes in your trial master file alongside the output.
+
+### Reproducible environments
+
+```powershell
+# Pin exact versions at analysis freeze
+uv lock                  # creates/updates uv.lock
+git add uv.lock && git commit -m "pin environment for analysis"
+
+# Recreate exact environment later or on another machine
+uv sync --frozen         # fails if uv.lock doesn't match pyproject.toml
+```
+
+---
+
+## 6.10 Distribution: `uv build` and publishing
+
+```powershell
+# Build a wheel and source distribution
+uv build
+
+# Output:
+# dist/clintools-0.1.0-py3-none-any.whl
+# dist/clintools-0.1.0.tar.gz
+```
+
+### Publish to TestPyPI (safe practice environment)
+
+```powershell
+# Register at test.pypi.org, create an API token
+uv publish --index testpypi --token your_token_here
+```
+
+### Install from TestPyPI to verify
+
+```powershell
+uv pip install clintools --index-url https://test.pypi.org/simple/
+```
+
+### Continuous integration (GitHub Actions stub)
+
+The `.github/workflows/ci.yml` already in the repo runs `ruff` + `pytest` on every push automatically.
+
+---
+
+## Recap
+
+1. **`src/` layout** prevents import-without-install bugs — if you can import it, it's installed correctly.
+2. **`pyproject.toml`** is the single config file: metadata, deps, dev tools, build system. `uv sync --all-extras` installs everything.
+3. **pytest AAA pattern:** Arrange → Act → Assert. One assertion per test. Use fixtures for shared setup.
+4. **Type checking + ruff:** run both in CI; they catch bugs that tests miss.
+5. **Pharma layer:** commit `uv.lock`, log input file hashes, version every release — these are what make your library trustworthy in a regulatory context.

@@ -1,0 +1,87 @@
+# Ch 4 — Functions, Errors, Files: Code That Works
+
+> **Idea:** A function is a named, repeatable recipe. An exception is a signal you can choose to handle or let propagate. A file is a context manager waiting to be opened.
+
+**Milestone:** Write `summarize_safety(adsl_path: Path, adae_path: Path) -> dict[str, int]` with full type hints, Google-style docstring, file I/O via pathlib, and proper handling for a missing file.
+
+---
+
+## TODO: Write full chapter content
+
+### Section outline
+
+- 4.1 Functions: `def`, positional/keyword/default args, `*args`, `**kwargs`, keyword-only, positional-only
+- 4.2 Scope: LEGB rule. The one `global` pattern that's acceptable. `nonlocal` in closures.
+- 4.3 Lambdas: the two legitimate uses (`sorted(key=...)`, `map(fn, iterable)`)
+- 4.4 First-class functions: passing functions as arguments, `functools.partial`
+- 4.5 Type hints (Python 3.10+ syntax): `list[str]`, `int | None`, `Literal[...]`, `TypedDict`, `Protocol`
+- 4.6 Docstrings: Google style. What to include. What to skip (don't re-state the type hint).
+- 4.7 Errors: `try/except/else/finally`. The exception hierarchy. Custom exceptions. When NOT to catch.
+- 4.8 Context managers: `with open(...)`, `contextlib.contextmanager` for writing your own.
+- 4.9 Files via pathlib: `read_text`, `write_text`, `open`, `glob`, `iterdir`. Always `encoding="utf-8"`.
+- 4.10 Iterators and generators: `iter`, `next`, `yield`, generator expressions
+
+### Milestone solution (stub)
+
+```python
+from pathlib import Path
+import polars as pl
+
+
+class StudyDataError(Exception):
+    """Raised when required study data is missing or malformed."""
+
+
+def summarize_safety(
+    adsl_path: Path,
+    adae_path: Path,
+) -> dict[str, int]:
+    """Compute safety population counts from ADSL and ADAE.
+
+    Args:
+        adsl_path: Path to adsl.parquet. Must contain USUBJID, SAFFL.
+        adae_path: Path to adae.parquet. Must contain USUBJID.
+
+    Returns:
+        Dict with keys: n_safety_population, n_subjects_with_ae.
+
+    Raises:
+        StudyDataError: If a required file does not exist.
+        StudyDataError: If required columns are missing.
+    """
+    for path in (adsl_path, adae_path):
+        if not path.exists():
+            raise StudyDataError(f"Data file not found: {path}")
+
+    adsl = pl.read_parquet(adsl_path)
+    adae = pl.read_parquet(adae_path)
+
+    for col in ("USUBJID", "SAFFL"):
+        if col not in adsl.columns:
+            raise StudyDataError(f"ADSL missing required column: {col}")
+
+    saf = adsl.filter(pl.col("SAFFL").eq("Y"))
+    saf_subjects = set(saf["USUBJID"].to_list())
+    ae_subjects  = set(adae["USUBJID"].to_list()) & saf_subjects
+
+    return {
+        "n_safety_population": len(saf_subjects),
+        "n_subjects_with_ae":  len(ae_subjects),
+    }
+```
+
+**Pitfalls to cover:**
+- Mutable default arguments (`def fn(lst=[])` is a bug)
+- `except Exception:` vs bare `except:` — never bare
+- Opening files without `with` — resource leaks
+- Generator exhaustion: `gen = (x for x in range(3)); list(gen); list(gen)` → second call returns `[]`
+
+---
+
+## Recap (stub)
+
+1. Type hints describe intent but don't enforce — run `mypy` to check them.
+2. `except SpecificError:` only — catching `Exception` hides bugs; catching bare `except:` hides crashes.
+3. Always use `with open(...)` — it guarantees the file closes even if an exception occurs.
+4. Generators are lazy: they compute one item at a time, which is why Polars `LazyFrame` is also lazy-friendly.
+5. `functools.partial` freezes some arguments of a function — useful for creating specialized versions of general functions.

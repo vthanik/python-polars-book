@@ -1,0 +1,235 @@
+# Ch 1 — Toolchain & Project Setup
+
+> **Idea:** One tool (`uv`) replaces the entire Python environment mess; one mental model (`pathlib`) replaces every `os.path` call. Get these right and the rest of the book installs cleanly.
+
+**Milestone:** `uv` venv created, Polars + Quarto installed, `hello.qmd` renders to HTML, `data/adam/*.parquet` populated.
+
+---
+
+## 1.1 Why the Python packaging story was painful (and isn't now)
+
+If you've tried Python before and given up on the environment setup, you are not alone. The old story:
+
+```
+pip install polars          # installs globally, breaks other projects
+python -m venv .venv        # creates a venv
+source .venv/Scripts/activate  # activate (Windows is different from Mac)
+pip install -r requirements.txt  # which may not pin transitive deps
+pyenv install 3.11.8        # manage Python versions separately
+```
+
+Four tools, three mental models, platform-specific activation commands.
+
+The new story is one tool.
+
+---
+
+## 1.2 `uv` — one tool to replace pip + venv + pyenv
+
+`uv` is a Python package manager written in Rust. It is **10-100× faster** than pip and manages Python versions, virtual environments, and lockfiles in a single command.
+
+### Install `uv` on Windows
+
+```powershell
+# In PowerShell (not Git Bash)
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Restart your terminal, then verify:
+
+```powershell
+uv --version
+# uv 0.4.x (or later)
+```
+
+### Install a specific Python version
+
+```powershell
+uv python install 3.11
+uv python list          # see what's installed
+```
+
+### Bootstrap this book's project
+
+```powershell
+cd C:/Users/vt704670/repos/python_polars_book
+
+# Create a venv pinned to Python 3.11
+uv venv --python 3.11
+
+# Install all book dependencies from pyproject.toml
+uv sync --all-extras
+```
+
+That's it. No `activate`. Every `uv run <command>` automatically uses the local `.venv`.
+
+```powershell
+uv run python -c "import polars; print(polars.__version__)"
+# 1.x.x
+```
+
+::: {.callout-warning}
+## Pitfall: Forgetting `uv run`
+If you type `python script.py` instead of `uv run python script.py` you'll use your system Python, not the venv. Alternatively, activate the venv manually once per session: `.venv\Scripts\activate` on Windows.
+:::
+
+---
+
+## 1.3 Project layout — the structure we use throughout this book
+
+```
+python_polars_book/
+├── _quarto.yml         ← Quarto book config
+├── pyproject.toml      ← single source of truth for deps + package metadata
+├── .python-version     ← "3.11" — tells uv which Python to use
+├── index.qmd           ← preface
+├── chapters/           ← one .qmd per chapter
+├── data/
+│   ├── adam/           ← synthetic CDISC pilot parquet files
+│   └── definitive_guide/  ← Polars book example datasets
+├── scripts/            ← one-time data fetch scripts
+├── src/
+│   └── clintools/      ← the library we build in Ch 6-8
+├── tests/              ← pytest tests for clintools
+└── docs/               ← mkdocs API documentation
+```
+
+This layout follows the `src/` convention — the package lives in `src/clintools/`, not in the root. The reason matters and is explained fully in Ch 6.
+
+---
+
+## 1.4 `pathlib` — the only way to handle paths
+
+> **Rule:** Never write `os.path.join(...)`. Write `Path(...) / "subdir" / "file.csv"`.
+
+```{python}
+#| label: pathlib-intro
+from pathlib import Path
+
+# Always reference your project root relative to this file
+PROJECT_ROOT = Path(__file__).parent if "__file__" in dir() else Path.cwd()
+DATA_DIR = PROJECT_ROOT / "data" / "adam"
+
+# Build paths safely — works on Windows AND Linux (Domino)
+adsl_path = DATA_DIR / "adsl.parquet"
+print(adsl_path)          # C:\...\data\adam\adsl.parquet  (local)
+                           # /mnt/.../data/adam/adsl.parquet  (Domino)
+
+# Explore a directory
+for f in DATA_DIR.glob("*.parquet"):
+    print(f.name, f.stat().st_size)
+```
+
+Key `Path` methods you'll use constantly:
+
+| Method | What it does |
+|---|---|
+| `Path.home()` | `C:/Users/vt704670` (Windows) or `/home/user` (Linux) |
+| `path / "subdir"` | Join path components — never use `+` or `os.path.join` |
+| `path.exists()` | True/False |
+| `path.mkdir(parents=True, exist_ok=True)` | Create dir safely |
+| `path.glob("*.parquet")` | Iterate matching files |
+| `path.stem` | `"adsl"` from `"adsl.parquet"` |
+| `path.suffix` | `".parquet"` |
+| `path.read_text(encoding="utf-8")` | Read entire file as string |
+| `path.write_text(content, encoding="utf-8")` | Write string to file |
+
+::: {.callout-warning}
+## Pitfall: Hardcoded Windows paths break on Domino
+Never write `"C:/Users/vt704670/repos/..."` inside Python code that will run on Domino. Always build paths from `Path.home()`, `Path(__file__).parent`, or environment variables. Your path code should work identically on both platforms without change.
+:::
+
+---
+
+## 1.5 Quarto — why `.qmd` files are better than plain `.ipynb`
+
+A `.qmd` (Quarto Markdown) file is like a Jupyter notebook but stored as plain text. This means:
+
+- `git diff` on a `.qmd` shows what actually changed (not JSON noise)
+- You can edit it in any text editor
+- `quarto render` converts it to HTML, PDF, or Word
+- A whole folder of `.qmd` files becomes a book via `_quarto.yml`
+
+### Install Quarto CLI (one time)
+
+Download from [quarto.org/docs/get-started/](https://quarto.org/docs/get-started/) — choose the Windows installer.
+
+Verify:
+
+```powershell
+quarto --version
+# 1.x.x
+```
+
+### Render the book
+
+```powershell
+cd C:/Users/vt704670/repos/python_polars_book
+quarto render
+```
+
+Output goes to `_book/index.html`. Open it in a browser.
+
+### Your first `.qmd` hello-world
+
+Create `hello.qmd` in the book root:
+
+````markdown
+---
+title: "Hello Polars"
+format: html
+---
+
+```{python}
+import polars as pl
+
+df = pl.DataFrame({
+    "subject": ["01-001", "01-002", "01-003"],
+    "age": [65, 72, 58],
+    "treatment": ["Drug A", "Placebo", "Drug A"],
+})
+df
+```
+````
+
+Render it:
+
+```powershell
+quarto render hello.qmd
+```
+
+If you see an HTML table with 3 rows, your setup is working.
+
+---
+
+## 1.6 Fetching the book data (one-time)
+
+Run the two fetch scripts once. They download and convert the synthetic CDISC pilot data and the *Definitive Guide* datasets:
+
+```powershell
+uv run python scripts/00_fetch_pilot_data.py
+uv run python scripts/01_fetch_dg_data.py
+```
+
+Verify:
+
+```{python}
+#| label: verify-data
+from pathlib import Path
+import polars as pl
+
+adam_dir = Path("data/adam")
+for f in sorted(adam_dir.glob("*.parquet")):
+    df = pl.read_parquet(f)
+    print(f"{f.name:20s}  {len(df):>5} rows  {len(df.columns):>3} cols")
+```
+
+---
+
+## Recap
+
+1. `uv` manages Python versions, venvs, and package locking — use `uv run <cmd>` to run in the venv.
+2. `uv sync --all-extras` installs everything from `pyproject.toml` in one command.
+3. Project layout: `src/` for the library, `chapters/` for the book, `data/` for datasets.
+4. `pathlib.Path` is the only acceptable way to build file paths — never `os.path.join`, never hardcoded strings.
+5. `.qmd` files are plain-text notebooks that `quarto render` converts to HTML; the whole book renders with a single `quarto render`.

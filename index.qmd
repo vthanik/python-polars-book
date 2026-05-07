@@ -1,0 +1,46 @@
+# Preface {.unnumbered}
+
+## Why this book exists
+
+You've read the books. You know the theory. But when you open a blank notebook and try to wrangle an ADSL, the muscle memory isn't there — your fingers reach for `dplyr::filter()` or `proc means`, not `pl.col("SAFFL").eq("Y")`.
+
+This book solves the retention problem, not the knowledge problem. Every concept is explained once, demonstrated on real-shaped clinical data, and ended with five bullets you should be able to recite from memory. The goal is to make modern Python feel as natural as R does today.
+
+## What this book will make you
+
+By the end of the 8 chapters:
+
+- **Fluent in modern Python** — types, control flow, errors, pathlib, generators, dataclasses, decorators. The whole language, the current way, without the cruft from Python 2 tutorials.
+- **Capable of authoring your own library** — `pyproject.toml`, `src/` layout, pytest, type hints, mkdocs, wheel publishing to PyPI. You can ship a reusable clinical utility package.
+- **Fast with Polars** — expressions, lazy evaluation, window functions, joins, reshape. The column-level operations you do daily in R, now native in Python.
+- **Aware of the clinical Python ecosystem** — `pyreadstat`, CDISC tooling, Domino deployment, R↔Python interop patterns, ARD format. The layer no general Python book covers.
+
+## Honest framing
+
+No book makes anyone "the best." That comes from years of real submissions, code reviews, and debugging production failures at 11pm.
+
+What this book delivers is the **strongest book-based foundation available for clinical Python**. The last 5% — the instinct, the pattern recognition, the knowing-when-to-break-rules — comes from doing the work.
+
+## How to read this book
+
+**The retention method:** Do not skim. For each chapter, close the chapter halfway through and try to reproduce what you just read in a blank cell. You will fail at first. That failure is the learning.
+
+**The milestone test:** Every chapter ends with a milestone. If you cannot complete it without looking, re-read the chapter. One pass is rarely enough.
+
+**Re-reading is the point.** This book is short and dense by design. A 30-minute re-read of Ch 3 on a Tuesday morning before opening your ADSL is worth more than reading a 500-page book once.
+
+## Data used
+
+All clinical examples use the **CDISC ADaM Pilot Dataset** — synthetic data with the same structure as real ADaM datasets (ADSL, ADAE, ADLBC, ADTTE). It is publicly available and fully reproducible. Run `scripts/00_fetch_pilot_data.py` once to populate `data/adam/`.
+
+General Polars examples use the *Python Polars: The Definitive Guide* companion datasets (penguins, sakila, taxi, etc.). Run `scripts/01_fetch_dg_data.py` once to populate `data/definitive_guide/`.
+
+## Setup (before Chapter 1)
+
+Before reading anything else, verify you have:
+
+1. **Python 3.11+** — check with `python --version`
+2. **uv** — install from [docs.astral.sh/uv](https://docs.astral.sh/uv)
+3. **Quarto CLI** — install from [quarto.org](https://quarto.org)
+
+Chapter 1 walks through the full setup if any of these are missing.

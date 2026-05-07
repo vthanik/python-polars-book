@@ -1,0 +1,158 @@
+# Ch 8 — Polars Advanced: Lazy, Window, Performance + Capstone
+
+> **Idea:** `pl.scan_parquet(...)` + `.collect()` is not just "the fast way" — it's a different computation model. Polars builds a query plan, optimizes it, and then executes. The plan is inspectable and teachable.
+
+**Milestone:** Rewrite Ch 7's pipeline as a single `.scan_*().collect()` query and print `.explain()` to verify predicate pushdown. Then promote it into `clintools.demographics` with a passing pytest.
+
+---
+
+## TODO: Write full chapter content
+
+### Section outline
+
+- 8.1 Lazy vs eager: `pl.scan_parquet` vs `pl.read_parquet`. When to use each.
+- 8.2 The query plan: `.explain()`. Understanding predicate pushdown and projection pushdown.
+- 8.3 Window functions with `.over()` — the Polars superpower
+  - First/last visit per subject
+  - Baseline carry-forward
+  - Running totals over study day
+  - Why this beats `group_by + join` for derived columns
+- 8.4 Streaming mode: `.collect(streaming=True)` and when it helps
+- 8.5 Memory and performance tips: `scan_*`, early filters, parquet > csv
+- 8.6 Visualization: matplotlib basics, `plotnine` for ggplot2 muscle memory
+- 8.7 Custom Python functions: `map_elements`, `map_batches` — cost and benefit
+- 8.8 Polars internals (brief): Arrow memory, why Polars is fast
+- 8.9 When to escape: NumPy, SciPy, pandas, R via rpy2
+- 8.10 Domino deployment: wheels, env parity, path abstraction
+- 8.11 R ↔ Python interop patterns
+- 8.12 ARD format: what it is, how Polars produces it
+- 8.13 CAPSTONE: `clintools.demographics.subject_ae_summary`
+
+### Window functions preview (the concept before the full chapter)
+
+```python
+import polars as pl
+
+# Without .over(): you'd need group_by + join
+# With .over(): derive a column "in place" without collapsing rows
+
+adae.with_columns(
+    # Sequence number of each AE per subject (chronological)
+    pl.col("AESTDY")
+      .rank(method="ordinal")
+      .over("USUBJID")
+      .alias("AE_SEQ"),
+
+    # Is this the subject's first AE?
+    pl.col("AESTDY")
+      .min()
+      .over("USUBJID")
+      .eq(pl.col("AESTDY"))
+      .alias("IS_FIRST_AE"),
+)
+```
+
+```
+Without .over():                    With .over():
+ADAE (many rows/subject)            ADAE (same shape, new columns)
+┌──────────┬────────┬──────────┐    ┌──────────┬────────┬────────┬──────────────┐
+│ USUBJID  │ AETERM │ AESTDY   │    │ USUBJID  │ AETERM │ AE_SEQ │ IS_FIRST_AE  │
+├──────────┼────────┼──────────┤    ├──────────┼────────┼────────┼──────────────┤
+│ 01-001   │ Nausea │ 5        │    │ 01-001   │ Nausea │ 1      │ true         │
+│ 01-001   │ Rash   │ 12       │    │ 01-001   │ Rash   │ 2      │ false        │
+│ 01-002   │ HA     │ 3        │    │ 01-002   │ HA     │ 1      │ true         │
+└──────────┴────────┴──────────┘    └──────────┴────────┴────────┴──────────────┘
+  group_by + join needed                .over("USUBJID") — no join needed
+```
+
+**Pitfalls to cover:**
+- Forgetting `.collect()` — your LazyFrame will not error; it just won't execute
+- `.over()` vs `group_by()`: over = derived column (same rows), group_by = aggregated rows (fewer rows)
+- `map_elements` applies a Python function row-by-row → no parallelism. 10-100× slower than native expressions.
+- Hardcoded Windows paths that break on Domino
+
+---
+
+## Capstone stub (will be filled in)
+
+```python
+# src/clintools/demographics.py
+
+import logging
+import hashlib
+from pathlib import Path
+import polars as pl
+from clintools.exceptions import StudyDataError
+
+logger = logging.getLogger(__name__)
+
+SEVERITY_RANK = {
+    "MILD": 1, "MODERATE": 2, "SEVERE": 3,
+    "LIFE-THREATENING": 4, "FATAL": 5
+}
+
+def subject_ae_summary(adsl_path: Path, adae_path: Path) -> pl.DataFrame:
+    """Compute subject-level AE summary joining ADSL and ADAE.
+
+    Args:
+        adsl_path: Path to adsl.parquet with USUBJID, TRT01A, SAFFL.
+        adae_path: Path to adae.parquet with USUBJID, AESEV.
+
+    Returns:
+        One row per safety-population subject: USUBJID, TRT01A, n_aes, worst_severity.
+
+    Raises:
+        StudyDataError: If a required file does not exist.
+    """
+    for path in (adsl_path, adae_path):
+        if not path.exists():
+            raise StudyDataError(f"File not found: {path}")
+
+    # Log input hashes for regulatory traceability
+    for path in (adsl_path, adae_path):
+        h = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+        logger.info("Input: %s  sha256=%s", path.name, h)
+
+    result = (
+        pl.scan_parquet(adsl_path)
+        .filter(pl.col("SAFFL").eq("Y"))
+        .select("USUBJID", "TRT01A")
+        .join(
+            pl.scan_parquet(adae_path).select("USUBJID", "AESEV"),
+            on="USUBJID",
+            how="left",
+        )
+        .with_columns(
+            pl.col("AESEV")
+              .replace(SEVERITY_RANK, default=0)
+              .cast(pl.Int8)
+              .alias("SEV_RANK")
+        )
+        .group_by("USUBJID", "TRT01A")
+        .agg(
+            pl.col("AESEV").drop_nulls().len().alias("n_aes"),
+            pl.col("SEV_RANK").max().alias("worst_sev_rank"),
+        )
+        .with_columns(
+            pl.col("worst_sev_rank")
+              .replace({v: k for k, v in SEVERITY_RANK.items()}, default=None)
+              .alias("worst_severity")
+        )
+        .drop("worst_sev_rank")
+        .sort("USUBJID")
+        .collect()
+    )
+
+    logger.info("Output: %d subjects", len(result))
+    return result
+```
+
+---
+
+## Recap (stub)
+
+1. `pl.scan_*` → `.collect()` is Polars' lazy execution model — the query optimizer eliminates unnecessary work before any data is read.
+2. `.explain()` shows the optimized plan — predicate pushdown means your `filter` ends up at the file scan, not after loading all rows.
+3. `.over()` computes window functions without collapsing rows — the clinical use case is baseline carry-forward and visit-sequence numbering.
+4. Always log input file hashes in production clinical code — the log IS the traceability record.
+5. Parquet as lingua franca between Python and R — write it from Polars, read it in R with `arrow::read_parquet()`, and both sides are fast.

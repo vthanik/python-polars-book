@@ -1,0 +1,404 @@
+# Ch 3 — Foundations: Types, Control Flow, Containers
+
+> **Idea:** Python has 8 built-in types, 4 containers, and 3 loop constructs. Master these and you can solve almost any data-processing problem before reaching for a library.
+
+**Milestone:** Solve these 5 mini-problems unaided in a blank cell:
+
+1. FizzBuzz 1-30 using `match/case` instead of if-chains
+2. Deduplicate a list preserving insertion order
+3. Count words in a string using a dict
+4. Flatten one level of a nested list: `[[1,2],[3,4]] → [1,2,3,4]`
+5. Group a list of dicts by a key: `[{"arm":"A","age":65}, ...] → {"A": [...], ...}`
+
+---
+
+## 3.1 Built-in types
+
+Python has no primitive types — everything is an object. The eight you need:
+
+| Type | Example | Mutable? | Notes |
+|---|---|---|---|
+| `int` | `42`, `-7` | No | Arbitrary precision |
+| `float` | `3.14`, `1e-6` | No | IEEE 754 double |
+| `str` | `"SAFFL"` | No | Unicode, immutable |
+| `bool` | `True`, `False` | No | Subclass of `int` |
+| `bytes` | `b"\x00\x01"` | No | Raw binary |
+| `None` | `None` | — | Singleton; "no value" |
+| `list` | `[1, 2, 3]` | Yes | Ordered, mixed types |
+| `dict` | `{"a": 1}` | Yes | Ordered (3.7+) |
+
+```{python}
+#| label: types-basic
+x = 42
+print(type(x))       # <class 'int'>
+print(isinstance(x, int))   # True
+print(isinstance(True, int)) # True  ← bool IS an int
+print(True + True)   # 2   ← this surprises people
+```
+
+### Truthiness — what counts as False
+
+Every value has a boolean interpretation. These are all **falsy**:
+
+```{python}
+#| label: truthiness
+falsy = [False, None, 0, 0.0, "", [], {}, set()]
+for v in falsy:
+    print(f"bool({v!r:12}) = {bool(v)}")
+```
+
+::: {.callout-warning}
+## Pitfall: `is` vs `==`
+Use `==` for equality. Use `is` only for `None` checks.
+
+```python
+x = [1, 2, 3]
+y = [1, 2, 3]
+x == y   # True   ← same value
+x is y   # False  ← different objects in memory
+
+# The ONLY safe pattern for None:
+if result is None: ...   # correct
+if result == None: ...   # works but can be fooled by custom __eq__
+```
+:::
+
+---
+
+## 3.2 Strings the modern way
+
+### f-strings (use these, not `.format()`, not `%`)
+
+```{python}
+#| label: fstrings
+name = "USUBJID"
+n = 229
+
+# Basic
+print(f"Column: {name}, N = {n}")
+
+# Debug with = (very useful in notebooks)
+print(f"{name=}, {n=}")  # name='USUBJID', n=229
+
+# Format spec: width, alignment, thousands separator
+print(f"N = {n:,}")       # N = 229
+print(f"N = {n:>6}")      # N =    229  (right-align in 6 chars)
+print(f"pct = {0.876:.1%}")  # pct = 87.6%
+```
+
+### Common string operations in clinical context
+
+```{python}
+#| label: string-ops
+term = "  Nausea  "
+print(term.strip())                          # "Nausea"
+print(term.strip().upper())                  # "NAUSEA"
+print("NAUSEA".lower())                      # "nausea"
+print("GRADE 3".startswith("GRADE"))         # True
+print("AELLT01".removeprefix("AE"))          # "LLT01"  (Python 3.9+)
+
+soc = "Gastrointestinal disorders"
+print(soc.replace("disorders", "findings"))
+
+# Split and rejoin (common for subject ID parsing)
+subj = "01-001-0042"
+parts = subj.split("-")     # ['01', '001', '0042']
+site = parts[0]             # '01'
+```
+
+---
+
+## 3.3 Control flow
+
+### `if / elif / else` and the ternary form
+
+```{python}
+#| label: if-basics
+aval = 3
+grade_label = "High" if aval >= 3 else "Low"
+print(grade_label)
+```
+
+### `match / case` (Python 3.10+) — cleaner than long if-chains
+
+```{python}
+#| label: match-case
+def classify_grade(grade: int) -> str:
+    match grade:
+        case 0:
+            return "No event"
+        case 1 | 2:
+            return "Mild/Moderate"
+        case 3 | 4:
+            return "Severe/Life-threatening"
+        case 5:
+            return "Fatal"
+        case _:
+            return "Unknown"
+
+for g in [0, 2, 4, 5, 9]:
+    print(f"Grade {g}: {classify_grade(g)}")
+```
+
+::: {.callout-note}
+The `_` case is the catch-all — equivalent to `else`. The `|` operator means "or" inside a `case`.
+:::
+
+### Walrus operator `:=` (assign and test in one line)
+
+```{python}
+#| label: walrus
+import re
+
+text = "Patient experienced Grade 3 nausea"
+# Without walrus: match = re.search(...); if match: use match
+# With walrus: one line
+if m := re.search(r"Grade (\d)", text):
+    print(f"Found grade: {m.group(1)}")
+```
+
+---
+
+## 3.4 Loops — all the patterns
+
+### `for` with `enumerate` and `zip`
+
+```{python}
+#| label: loops-enumerate-zip
+subjects = ["01-001", "01-002", "01-003"]
+doses    = [120, 200, 300]
+
+# enumerate gives you index + value
+for i, subj in enumerate(subjects):
+    print(f"[{i}] {subj}")
+
+# zip pairs two iterables (stops at the shorter one)
+for subj, dose in zip(subjects, doses):
+    print(f"{subj}  →  {dose} mg")
+```
+
+### `for/else` — the pattern you never see in other languages
+
+```{python}
+#| label: for-else
+# The `else` clause runs if the loop finished WITHOUT a `break`
+def find_critical_ae(aes: list[dict]) -> str | None:
+    for ae in aes:
+        if ae["grade"] >= 4:
+            return ae["term"]
+    return None   # no break → would also work with for/else
+
+# Equivalently with for/else:
+aes = [{"term": "Nausea", "grade": 1}, {"term": "Rash", "grade": 2}]
+for ae in aes:
+    if ae["grade"] >= 4:
+        print(f"Critical: {ae['term']}")
+        break
+else:
+    print("No critical AEs found")
+```
+
+### Comprehensions — the Python idiom for building collections
+
+```{python}
+#| label: comprehensions
+grades = [1, 3, 2, 4, 1, 5, 2]
+
+# List comprehension: filter + transform in one expression
+severe = [g for g in grades if g >= 3]
+print(severe)   # [3, 4, 5]
+
+# With transformation
+labels = ["Severe" if g >= 3 else "Mild" for g in grades]
+
+# Dict comprehension
+subject_ages = {"01-001": 65, "01-002": 72, "01-003": 58}
+elderly = {subj: age for subj, age in subject_ages.items() if age >= 70}
+print(elderly)   # {'01-002': 72}
+
+# Set comprehension: unique values
+socs = ["GI disorders", "GI disorders", "Skin", "GI disorders", "Skin"]
+unique_socs = {s for s in socs}
+print(unique_socs)   # {'GI disorders', 'Skin'}
+```
+
+::: {.callout-warning}
+## Pitfall: Comprehensions that hurt readability
+If your comprehension needs more than one `if` or two `for` clauses, extract it into a regular loop. The benefit of a comprehension is conciseness; if it's not concise, it's just obfuscation.
+:::
+
+---
+
+## 3.5 The four containers
+
+```
+Which container to use?
+                         ┌─────────────┐
+                         │  need key   │
+                         │  lookup?    │
+                         └──────┬──────┘
+                    No          │         Yes
+          ┌─────────────┐       │    ┌─────────────┐
+          │  ordered?   │       │    │  need to    │
+          └──────┬──────┘       │    │  enforce    │
+         No      │  Yes         │    │  unique     │
+      ┌──────┐   │  ┌────────┐  │    │  keys?      │
+      │ set  │   │  │ list   │  │    └──────┬──────┘
+      │(fast │   │  │ tuple  │  │    No     │  Yes
+      │unique│   │  │(immut) │  │           │
+      └──────┘   │  └────────┘  │         dict
+                 └──────────────┘   (always unique keys)
+```
+
+### `list` — ordered, mutable, the workhorse
+
+```{python}
+#| label: list-ops
+subjects = ["01-001", "01-002"]
+subjects.append("01-003")        # add to end
+subjects.insert(0, "00-000")     # insert at index
+subjects.remove("00-000")        # remove by value (first match)
+popped = subjects.pop()          # remove & return last
+print(sorted(subjects))          # new sorted list (doesn't mutate)
+```
+
+### `tuple` — ordered, immutable, for fixed structures
+
+```{python}
+#| label: tuple-ops
+row = ("01-001", "Drug A", 65, "Y")   # USUBJID, TRT, AGE, SAFFL
+
+# Unpack
+subj, trt, age, safe = row
+print(f"{subj}: {trt}, age {age}")
+
+# Tuple is hashable → can be a dict key or set member
+lookup = {("01-001", 1): "baseline", ("01-001", 2): "week4"}
+```
+
+### `dict` — key-value, ordered since Python 3.7
+
+```{python}
+#| label: dict-ops
+config = {"studyid": "300382", "datadate": "15DEC2025"}
+
+# Access
+print(config["studyid"])
+print(config.get("missing_key", "default"))   # safe get
+
+# Update
+config["analyst"] = "vt704670"
+config.update({"version": "v1", "datadate": "20MAR2026"})
+
+# Iterate
+for key, value in config.items():
+    print(f"  {key}: {value}")
+
+# Dict comprehension from two lists
+keys   = ["adsl", "adae", "adlbc"]
+counts = [229,     1498,    3204]
+n_map  = dict(zip(keys, counts))
+print(n_map)
+```
+
+### `set` — unordered, unique values, fast membership test
+
+```{python}
+#| label: set-ops
+all_subjects  = {"01-001", "01-002", "01-003", "01-004"}
+saf_subjects  = {"01-001", "01-002", "01-003"}
+
+# Set operations — the clinical use case: which subjects are in each pop
+print("In SAF only:", saf_subjects - all_subjects)              # {}
+print("In All not SAF:", all_subjects - saf_subjects)          # {'01-004'}
+print("In either:", all_subjects | saf_subjects)
+print("In both:", all_subjects & saf_subjects)
+print("Is SAF ⊆ All?", saf_subjects <= all_subjects)           # True (subset)
+```
+
+---
+
+## 3.6 Unpacking
+
+```{python}
+#| label: unpacking
+# Basic tuple unpacking
+first, *rest = [1, 2, 3, 4, 5]
+print(first)  # 1
+print(rest)   # [2, 3, 4, 5]
+
+# Swap without a temp variable
+a, b = 1, 2
+a, b = b, a
+print(a, b)   # 2 1
+
+# Dict merge (Python 3.9+)
+base = {"studyid": "300382", "datadate": "15DEC2025"}
+override = {"datadate": "20MAR2026", "analyst": "vt704670"}
+merged = {**base, **override}
+print(merged)  # override wins on duplicate keys
+```
+
+---
+
+## 3.7 Mini-problem solutions
+
+```{python}
+#| label: milestones
+
+# 1. FizzBuzz with match/case
+for n in range(1, 31):
+    match (n % 3, n % 5):
+        case (0, 0): print("FizzBuzz")
+        case (0, _): print("Fizz")
+        case (_, 0): print("Buzz")
+        case _:      print(n)
+```
+
+```{python}
+# 2. Deduplicate preserving order
+def dedup(items: list) -> list:
+    seen: set = set()
+    return [x for x in items if not (x in seen or seen.add(x))]  # type: ignore[func-returns-value]
+
+print(dedup(["a", "b", "a", "c", "b"]))  # ['a', 'b', 'c']
+```
+
+```{python}
+# 3. Word count
+text = "nausea rash nausea fatigue rash nausea"
+word_count: dict[str, int] = {}
+for word in text.split():
+    word_count[word] = word_count.get(word, 0) + 1
+print(word_count)
+# or: from collections import Counter; Counter(text.split())
+```
+
+```{python}
+# 4. Flatten one level
+nested = [[1, 2], [3, 4], [5]]
+flat = [x for sublist in nested for x in sublist]
+print(flat)   # [1, 2, 3, 4, 5]
+```
+
+```{python}
+# 5. Group dicts by key
+records = [
+    {"arm": "A", "age": 65}, {"arm": "B", "age": 72},
+    {"arm": "A", "age": 58}, {"arm": "B", "age": 61},
+]
+grouped: dict[str, list] = {}
+for r in records:
+    grouped.setdefault(r["arm"], []).append(r)
+print({k: len(v) for k, v in grouped.items()})  # {'A': 2, 'B': 2}
+```
+
+---
+
+## Recap
+
+1. **Types:** Everything is an object. `bool` is a subclass of `int`. Use `is None`, not `== None`.
+2. **Strings:** Always f-strings (`f"{x=}"` for debug). `strip()`, `upper()`, `removeprefix()` cover 90% of clinical string needs.
+3. **Control flow:** `match/case` replaces long if-chains. Walrus `:=` assigns + tests in one line.
+4. **Loops:** `enumerate` for index + value, `zip` for pairing, `for/else` for "was there a break?".
+5. **Containers:** `list` = ordered mutable; `tuple` = ordered immutable (hashable); `dict` = key-value; `set` = unique values, fast lookup.

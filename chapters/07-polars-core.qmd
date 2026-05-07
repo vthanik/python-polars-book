@@ -1,0 +1,437 @@
+# Ch 7 — Polars Core: Frames, Expressions, Wrangling
+
+> **Idea:** Polars has one insight that changes everything — an expression like `pl.col("AGE")` is a *recipe*, not a value. Recipes are composable, parallelizable, and lazy by default. Once this clicks, the whole API falls into place.
+
+**Milestone:** From CDISC pilot ADSL + ADAE, produce `subject_ae_summary.parquet` — one row per subject, columns: `USUBJID`, `TRT01A`, `n_aes`, `worst_severity`. Single chained pipeline, no intermediate variables.
+
+---
+
+## 7.1 The two core types
+
+```{python}
+#| label: polars-setup
+import polars as pl
+from pathlib import Path
+
+DATA = Path("data/adam")
+```
+
+```{python}
+#| label: series-dataframe
+# Series: a single column
+ages = pl.Series("AGE", [65, 72, 58, 61])
+print(ages)
+print(ages.dtype)    # Int64
+print(ages.mean())   # 64.0
+
+# DataFrame: a collection of Series, all same length
+df = pl.DataFrame({
+    "USUBJID": ["01-001", "01-002", "01-003"],
+    "TRT01A":  ["Drug A", "Placebo", "Drug A"],
+    "AGE":     [65, 72, 58],
+    "SAFFL":   ["Y", "Y", "Y"],
+})
+print(df)
+print(df.schema)   # OrderedDict of column → dtype
+```
+
+**Key difference from pandas:** Polars has no row index. Every row is just a position. If you need to look up a row by subject ID, you `filter` for it.
+
+---
+
+## 7.2 Reading clinical data
+
+```{python}
+#| label: read-data
+# Parquet (what we use in this book — fastest, typed)
+adsl = pl.read_parquet(DATA / "adsl.parquet")
+adae = pl.read_parquet(DATA / "adae.parquet")
+
+print(f"ADSL: {adsl.shape}")
+print(f"ADAE: {adae.shape}")
+print(adsl.head(3))
+```
+
+```{python}
+#| label: read-xpt-example
+# For SAS .xpt files directly (without prior conversion):
+import pyreadstat
+df_pd, meta = pyreadstat.read_xport("data/adam/adsl.xpt")
+adsl_from_xpt = pl.from_pandas(df_pd)
+
+# For .sas7bdat:
+# df_pd, meta = pyreadstat.read_sas7bdat("adsl.sas7bdat")
+```
+
+```{python}
+#| label: read-csv
+penguins = pl.read_csv("data/definitive_guide/penguins.csv")
+print(penguins.head(3))
+```
+
+---
+
+## 7.3 The expression API — the central idea
+
+This is the most important section in the entire Polars part.
+
+### What an expression IS
+
+```{python}
+#| label: expression-intro
+# This is NOT a value:
+expr = pl.col("AGE")
+print(type(expr))   # polars.expr.expr.Expr
+
+# It's a recipe that says "take the AGE column and do something with it"
+# The recipe evaluates only when placed in a context:
+result = adsl.select(pl.col("AGE").mean())
+print(result)   # now it's a value
+```
+
+### The four contexts
+
+```
+Every Polars operation lives in one of four contexts:
+
+┌─────────────────┬────────────────────────────────────────┐
+│ Context         │ Purpose                                │
+├─────────────────┼────────────────────────────────────────┤
+│ select(...)     │ Choose / compute columns               │
+│ filter(...)     │ Keep rows matching a condition         │
+│ with_columns(…) │ Add / replace columns, keep all rows   │
+│ group_by().agg()│ Summarize rows into groups             │
+└─────────────────┴────────────────────────────────────────┘
+```
+
+```{python}
+#| label: four-contexts
+# 1. select — choose columns (returns only what you ask for)
+adsl.select("USUBJID", "TRT01A", "AGE")
+
+# 2. filter — keep rows
+adsl.filter(pl.col("SAFFL").eq("Y"))
+# equivalently:
+adsl.filter(pl.col("SAFFL") == "Y")
+
+# 3. with_columns — add a derived column (all original columns kept)
+adsl.with_columns(
+    pl.col("AGE").ge(65).alias("ELDERLY")
+)
+
+# 4. group_by + agg — summarise
+adsl.group_by("TRT01A").agg(
+    pl.len().alias("n"),
+    pl.col("AGE").mean().alias("mean_age"),
+)
+```
+
+---
+
+## 7.4 Selecting and filtering
+
+```{python}
+#| label: selecting
+# By name
+adsl.select("USUBJID", "TRT01A", "AGE", "SEX")
+
+# By dtype
+adsl.select(pl.col(pl.Utf8))   # all string columns
+
+# All except
+adsl.select(pl.exclude("STUDYID", "DOMAIN"))
+
+# Filter: AND conditions
+adsl.filter(
+    pl.col("SAFFL").eq("Y") &
+    pl.col("AGE").ge(65)
+)
+
+# Filter: OR conditions
+adsl.filter(
+    pl.col("TRT01A").eq("Drug A") |
+    pl.col("AGE").lt(60)
+)
+
+# Filter: is_in
+adsl.filter(pl.col("TRT01A").is_in(["Drug A", "Drug B"]))
+
+# Filter: between (inclusive on both ends)
+adsl.filter(pl.col("AGE").is_between(65, 75))
+```
+
+---
+
+## 7.5 Adding derived columns with `with_columns`
+
+```{python}
+#| label: with-columns
+adsl_derived = adsl.with_columns(
+    # Age group (clinical standard)
+    pl.when(pl.col("AGE") < 65)
+        .then(pl.lit("<65"))
+        .when(pl.col("AGE").is_between(65, 74))
+        .then(pl.lit("65-74"))
+        .otherwise(pl.lit(">=75"))
+        .alias("AGEGR1"),
+
+    # Flag elderly subjects
+    pl.col("AGE").ge(65).alias("ELDERLY_FL"),
+)
+print(adsl_derived.select("USUBJID", "AGE", "AGEGR1", "ELDERLY_FL").head(5))
+```
+
+::: {.callout-warning}
+## Pitfall: `with_columns` does NOT modify in place
+Polars DataFrames are immutable. `df.with_columns(...)` returns a **new** DataFrame — the original is unchanged. You must assign the result: `df = df.with_columns(...)`.
+:::
+
+---
+
+## 7.6 dtypes and casting
+
+```{python}
+#| label: dtypes-casting
+print(adsl.dtypes)          # list of dtypes
+print(adsl.schema)          # {col: dtype} ordered dict
+
+# Cast with strict=False (bad values become null instead of raising)
+adsl.with_columns(
+    pl.col("AGE").cast(pl.Int32, strict=False),
+)
+
+# Parse date strings — common in CDISC data where dates come as "15DEC2025"
+# adsl.with_columns(
+#     pl.col("BRTHDT").str.strptime(pl.Date, "%d%b%Y")
+# )
+
+# Categorical for treatment arms (faster group_by, less memory)
+adsl.with_columns(
+    pl.col("TRT01A").cast(pl.Categorical)
+)
+```
+
+---
+
+## 7.7 Nulls — the most important difference from pandas
+
+Polars distinguishes **two** kinds of "missing":
+
+```
+┌─────────┬────────────────────────────────────────────────────┐
+│ Type    │ Meaning                                            │
+├─────────┼────────────────────────────────────────────────────┤
+│ null    │ True missing value — "this cell has no data"       │
+│ NaN     │ Float arithmetic result: 0.0/0.0, sqrt(-1)        │
+└─────────┴────────────────────────────────────────────────────┘
+
+pandas conflates them. Polars keeps them separate.
+In clinical data: missing AVAL is null, not NaN.
+```
+
+```{python}
+#| label: nulls
+import polars as pl
+
+df = pl.DataFrame({
+    "val": [1.0, None, float("nan"), 4.0]
+})
+
+print(df.with_columns(
+    pl.col("val").is_null().alias("is_null"),
+    pl.col("val").is_nan().alias("is_nan"),
+))
+# Row 1 (None):     is_null=True,  is_nan=False
+# Row 2 (NaN):      is_null=False, is_nan=True
+
+# Filling
+df.with_columns(pl.col("val").fill_null(0.0))
+df.with_columns(pl.col("val").fill_nan(pl.lit(None)))  # convert NaN to null
+df.drop_nulls(subset=["val"])
+```
+
+::: {.callout-warning}
+## Pitfall: NaN ≠ null in Polars
+`is_null()` will NOT catch NaN. In clinical data, after converting from SAS/XPT, numeric columns can have both. Always check both with `is_null() | is_nan()` and decide which treatment is appropriate.
+:::
+
+---
+
+## 7.8 String and date namespaces
+
+```{python}
+#| label: str-namespace
+adae_strings = adae.with_columns(
+    pl.col("AETERM").str.to_uppercase().alias("AETERM_UC"),
+    pl.col("AETERM").str.contains("NAUSEA").alias("IS_NAUSEA"),
+    pl.col("AEBODSYS").str.replace("disorders", "findings").alias("AEBODSYS_R"),
+)
+adae_strings.select("AETERM", "AETERM_UC", "IS_NAUSEA").head(5)
+```
+
+```{python}
+#| label: date-namespace
+# If ADSL has date columns:
+# adsl.with_columns(
+#     pl.col("TRTSDT").dt.year().alias("TRT_YEAR"),
+#     pl.col("TRTSDT").dt.month().alias("TRT_MONTH"),
+#     (pl.col("TRTEDT") - pl.col("TRTSDT")).dt.total_days().alias("TRTDUR"),
+# )
+# Study day calculation: STUDYDY = (date - RFSTDTC) + 1
+```
+
+---
+
+## 7.9 `group_by` + `agg` — multiple statistics in one pass
+
+```{python}
+#| label: groupby-agg
+# Demographics-style summary
+demo_summary = (
+    adsl
+    .filter(pl.col("SAFFL").eq("Y"))
+    .group_by("TRT01A")
+    .agg(
+        pl.len().alias("n"),
+        pl.col("AGE").mean().round(1).alias("mean_age"),
+        pl.col("AGE").std().round(1).alias("sd_age"),
+        pl.col("AGE").median().alias("median_age"),
+        pl.col("AGE").min().alias("min_age"),
+        pl.col("AGE").max().alias("max_age"),
+        (pl.col("SEX").eq("F").sum() / pl.len() * 100).round(1).alias("pct_female"),
+    )
+    .sort("TRT01A")
+)
+print(demo_summary)
+```
+
+---
+
+## 7.10 Joins
+
+```
+ADSL (one row per subject)          ADAE (many rows per subject)
+┌──────────┬────────┬─────┐         ┌──────────┬─────────────┬───────┐
+│ USUBJID  │ TRT01A │ AGE │         │ USUBJID  │ AETERM      │ AESEV │
+├──────────┼────────┼─────┤         ├──────────┼─────────────┼───────┤
+│ 01-001   │ Drug A │ 65  │         │ 01-001   │ Nausea      │ MILD  │
+│ 01-002   │ Plcbo  │ 72  │         │ 01-001   │ Rash        │ MOD   │
+└──────────┴────────┴─────┘         │ 01-002   │ Headache    │ MILD  │
+                                     └──────────┴─────────────┴───────┘
+
+         left_join on USUBJID
+                    │
+                    ▼
+┌──────────┬────────┬─────┬─────────────┬───────┐
+│ USUBJID  │ TRT01A │ AGE │ AETERM      │ AESEV │
+├──────────┼────────┼─────┼─────────────┼───────┤
+│ 01-001   │ Drug A │ 65  │ Nausea      │ MILD  │
+│ 01-001   │ Drug A │ 65  │ Rash        │ MOD   │
+│ 01-002   │ Plcbo  │ 72  │ Headache    │ MILD  │
+└──────────┴────────┴─────┴─────────────┴───────┘
+```
+
+```{python}
+#| label: joins
+# left join: keep all ADSL subjects, attach AE info (NULLs if no AEs)
+adsl_ae = adsl.join(adae, on="USUBJID", how="left")
+
+# inner join: only subjects with at least one AE
+adsl_ae_inner = adsl.join(adae, on="USUBJID", how="inner")
+
+# semi join: ADSL filtered to subjects with AEs (no AE columns attached)
+adsl_with_aes = adsl.join(adae.select("USUBJID").unique(), on="USUBJID", how="semi")
+
+# anti join: ADSL filtered to subjects with NO AEs
+adsl_no_aes = adsl.join(adae.select("USUBJID").unique(), on="USUBJID", how="anti")
+
+print(f"Total ADSL: {len(adsl)}")
+print(f"With AEs:   {len(adsl_with_aes)}")
+print(f"Without AEs:{len(adsl_no_aes)}")
+```
+
+::: {.callout-warning}
+## Pitfall: Fanout multiplies rows
+After `inner` or `left` join with ADAE, one ADSL subject with 10 AEs becomes 10 rows. Always check `len()` before and after a join to verify you didn't accidentally multiply your population.
+:::
+
+---
+
+## 7.11 Reshape: pivot and unpivot
+
+```{python}
+#| label: pivot-unpivot
+# ADLBC comes in long format: one row per subject × parameter × visit
+# Pivot to wide: one row per subject, one column per parameter
+
+# Example with synthetic long data:
+long = pl.DataFrame({
+    "USUBJID":  ["A", "A", "B", "B"],
+    "PARAM":    ["ALT", "AST", "ALT", "AST"],
+    "AVAL":     [35.0, 28.0, 42.0, 31.0],
+})
+
+wide = long.pivot(index="USUBJID", on="PARAM", values="AVAL")
+print(wide)
+# ┌──────────┬──────┬──────┐
+# │ USUBJID  │ ALT  │ AST  │
+# ├──────────┼──────┼──────┤
+# │ A        │ 35.0 │ 28.0 │
+# │ B        │ 42.0 │ 31.0 │
+# └──────────┴──────┴──────┘
+
+# Unpivot (wide → long) — previously called melt in pandas/Polars <0.19
+back_to_long = wide.unpivot(index="USUBJID", variable_name="PARAM", value_name="AVAL")
+print(back_to_long)
+```
+
+---
+
+## 7.12 Milestone solution
+
+```{python}
+#| label: milestone-solution
+SEVERITY_RANK = {"MILD": 1, "MODERATE": 2, "SEVERE": 3, "LIFE-THREATENING": 4, "FATAL": 5}
+
+subject_ae_summary = (
+    adsl
+    .filter(pl.col("SAFFL").eq("Y"))
+    .select("USUBJID", "TRT01A")
+    .join(
+        adae.select("USUBJID", "AESEV"),
+        on="USUBJID",
+        how="left",
+    )
+    .with_columns(
+        pl.col("AESEV")
+            .replace(SEVERITY_RANK, default=0)
+            .cast(pl.Int8)
+            .alias("SEV_RANK")
+    )
+    .group_by("USUBJID", "TRT01A")
+    .agg(
+        pl.col("AESEV").drop_nulls().len().alias("n_aes"),
+        pl.col("SEV_RANK").max().alias("worst_sev_rank"),
+    )
+    .with_columns(
+        pl.col("worst_sev_rank")
+            .replace({v: k for k, v in SEVERITY_RANK.items()}, default=None)
+            .alias("worst_severity")
+    )
+    .drop("worst_sev_rank")
+    .sort("USUBJID")
+)
+
+subject_ae_summary.write_parquet("data/adam/subject_ae_summary.parquet")
+print(subject_ae_summary.head(10))
+```
+
+---
+
+## Recap
+
+1. **Series and DataFrame:** no row index; `schema` shows column → dtype. Frames are immutable — every operation returns a new frame.
+2. **Expression API:** `pl.col("X")` is a recipe, not a value. Recipes evaluate inside `select`, `filter`, `with_columns`, `group_by().agg()` — the four contexts.
+3. **Null ≠ NaN:** in clinical data, missing values should be `null`; use `is_null()` to find them. `is_nan()` catches float arithmetic artifacts separately.
+4. **Joins:** `left` keeps all left rows; `semi`/`anti` filter without expanding; after any non-semi join, check your row count.
+5. **group_by + agg:** compute many statistics in a single pass — more efficient and cleaner than chaining multiple operations.

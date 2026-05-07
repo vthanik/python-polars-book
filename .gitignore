@@ -1,0 +1,43 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Quarto / book output
+_book/
+_freeze/
+.quarto/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# MkDocs output
+site/
+
+# Data files — fetch via scripts, don't commit
+data/adam/*.parquet
+data/adam/*.xpt
+data/definitive_guide/
+
+# Local environment
+.env
+*.env
+uv.lock
+
+# IDE
+.vscode/
+.positron/
+*.Rproj
+
+# OS
+.DS_Store
+desktop.ini
+Thumbs.db
