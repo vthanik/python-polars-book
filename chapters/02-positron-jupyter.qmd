@@ -1,45 +1,412 @@
 # Ch 2 — Positron + JupyterLab Mastery
 
-> **Idea:** The best IDE is the one you can operate without thinking. Every extra mouse click is cognitive overhead you could spend understanding code.
+> **Idea:** The best IDE is the one you can operate without thinking. Every mouse click is cognitive overhead you could spend understanding data.
 
-**Milestone:** Run a `.qmd` cell, jump to definition, restart kernel, and inspect a Polars DataFrame in the variables pane — without touching the mouse.
-
----
-
-## TODO: Write full chapter content
-
-### Section outline
-
-- 2.1 The two editors compared: when to use Positron, when to use JupyterLab
-- 2.2 Positron setup: kernel selection, variables pane, data viewer for Polars DataFrames
-- 2.3 Positron keyboard shortcuts (the 12 that matter)
-  - `Ctrl+Enter` — run current line/selection
-  - `Shift+Enter` — run cell and advance
-  - `Ctrl+Shift+P` — command palette
-  - `F12` — go to definition
-  - `Ctrl+.` — quick fix
-  - `Ctrl+Shift+\`` — new terminal
-- 2.4 JupyterLab: launch, interface, the cell mode vs edit mode distinction
-- 2.5 JupyterLab keyboard shortcuts (the 15 that matter)
-  - Cell mode: `dd` delete, `a`/`b` insert above/below, `m`/`y` markdown/code, `Shift+Enter` run
-  - Edit mode: `Ctrl+/` comment, `Tab` autocomplete
-  - `Ctrl+Shift+C` — command palette
-- 2.6 Magic commands: `%timeit`, `%who`, `%run`, `%load_ext autoreload`, `%debug`
-- 2.7 Round-tripping `.qmd` ↔ `.ipynb`
-- 2.8 Debugging: breakpoints in Positron, `%debug` post-mortem in JupyterLab
-- 2.9 `nbstripout` — strip outputs before git commit
-
-**Pitfalls to cover:**
-- Stale kernel state (when to restart-and-run-all)
-- `autoreload` not picking up changes in the installed package (reinstall with `uv pip install -e .`)
-- Polars DataFrames may not render in the variables pane without the right extension
+**Milestone:** Run a `.qmd` cell, jump to a function definition, restart the kernel, and inspect a Polars DataFrame in the variables pane — all without touching the mouse.
 
 ---
 
-## Recap (stub)
+## 2.1 Which editor for which task
 
-1. Positron for `.qmd` editing and running code interactively; JupyterLab for notebook workflows.
-2. Restart kernel when output looks wrong — stale state is the #1 debugging time-waster.
-3. `%load_ext autoreload` + `%autoreload 2` — auto-reload your library code when it changes.
-4. `%timeit` — benchmark before optimizing.
-5. `F12` (go to definition) in Positron is your best friend for exploring library code.
+Both editors ship with this book's setup. Use the right one for the job:
+
+```
+┌──────────────────────────┬─────────────────────────────────────────────┐
+│ Positron                 │ JupyterLab                                  │
+├──────────────────────────┼─────────────────────────────────────────────┤
+│ .qmd chapters (this book)│ Ad-hoc exploration notebooks (.ipynb)       │
+│ Writing .py library code │ Teaching demos, quick prototypes            │
+│ Debugging with breakpoints│ Sharing notebooks with colleagues          │
+│ Git diff, source control │ Magic commands (%timeit, %debug)            │
+│ Go to definition, linting│                                             │
+└──────────────────────────┴─────────────────────────────────────────────┘
+```
+
+For this book: **open `.qmd` files in Positron, run JupyterLab when a section says to**.
+
+---
+
+## 2.2 Positron — setup and interface
+
+Positron is built on VS Code but designed specifically for data science. It adds:
+
+- **Variables pane** — shows every live Python/R object, like RStudio's Environment
+- **Data viewer** — click any DataFrame in the variables pane to open it as a spreadsheet
+- **Console** — run code interactively, separate from the editor
+- **Plots pane** — captures matplotlib/plotnine output
+
+### First-time Python setup
+
+1. Open Positron
+2. Open the folder: `File → Open Folder → C:/Users/vt704670/repos/python_polars_book`
+3. Bottom-right status bar → click the Python version → select **Python 3.13 (.venv)**
+4. If `.venv` doesn't appear: `Ctrl+Shift+P` → `Python: Select Interpreter` → browse to `.venv/Scripts/python.exe`
+
+### The Positron layout for this book
+
+```
+┌─────────────────────────────────┬──────────────────────┐
+│  Editor (left, large)           │  Variables pane       │
+│  .qmd file open here            │  (top right)          │
+│  ↑ where you spend most time    ├──────────────────────┤
+│                                 │  Plots / Help / Files │
+├─────────────────────────────────┤  (bottom right)       │
+│  Console (bottom left)          │                       │
+│  ↑ REPL, interactive output     │                       │
+└─────────────────────────────────┴──────────────────────┘
+```
+
+---
+
+## 2.3 Positron keyboard shortcuts — the ones that matter
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+Enter` | Run current line / selection in Console |
+| `Shift+Enter` | Run current cell (notebook) + advance to next |
+| `Ctrl+Shift+P` | Command palette — search everything |
+| `F12` | Go to definition |
+| `Shift+F12` | Find all references |
+| `F1` | Show contextual help for symbol under cursor |
+| `Ctrl+.` | Quick fix / auto-import suggestion |
+| `Ctrl+/` | Toggle line comment |
+| `Ctrl+D` | Select next occurrence of word |
+| `Ctrl+Shift+K` | Delete current line |
+| `Alt+↑ / Alt+↓` | Move line up / down |
+| `Ctrl+L` | Clear the Console |
+| `` Ctrl+` `` | Open/focus terminal |
+| `Ctrl+Shift+E` | Focus the Explorer (file tree) |
+
+::: {.callout-tip}
+## The one shortcut to learn first
+`Ctrl+Shift+P` (command palette) is the escape hatch for everything. If you forget a shortcut, open the palette and type what you want — "restart kernel", "select interpreter", "format document".
+:::
+
+### Running code from a `.qmd` file
+
+There are three ways to run code in Positron:
+
+```
+Option 1: Run a single cell
+  Click inside any ```{python} block → Ctrl+Shift+Enter (run cell)
+
+Option 2: Run current line / selection
+  Select any lines → Ctrl+Enter → output appears in Console
+
+Option 3: Render the whole book
+  Open a terminal → quarto render
+```
+
+### Viewing a Polars DataFrame in the data viewer
+
+```{python}
+#| label: polars-viewer-demo
+import polars as pl
+from pathlib import Path
+
+def _root(p: Path) -> Path:
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+adsl = pl.read_parquet(_root(Path.cwd()) / "data/adam/adsl.parquet")
+adsl.head(10)
+```
+
+After running this in Positron:
+
+1. Find `adsl` in the **Variables pane** (top right)
+2. Click the grid icon next to it
+3. A spreadsheet opens — sortable, filterable, full column types visible
+
+::: {.callout-warning}
+## Pitfall: Stale kernel state
+The variables pane shows what's in memory *right now* — but if you ran cells out of order, values may not be what you think. When output looks wrong, do: `Ctrl+Shift+P` → "Restart Interpreter" → re-run from the top.
+:::
+
+---
+
+## 2.4 JupyterLab — setup and shortcuts
+
+```powershell
+# Launch from the activated venv
+uv run jupyter lab
+# Opens at http://localhost:8888
+```
+
+### The critical mental model: command mode vs edit mode
+
+JupyterLab has two modes. Getting stuck is almost always a mode confusion issue.
+
+```
+COMMAND MODE (blue left border)          EDIT MODE (green left border)
+Navigate between cells                   Type code inside a cell
+────────────────────────────             ──────────────────────────
+Esc  → enter command mode                Enter → enter edit mode
+↑ / ↓  → move between cells             Ctrl+Enter → run cell, stay
+A  → insert cell Above                   Shift+Enter → run cell, advance
+B  → insert cell Below                   Tab → autocomplete
+D, D  → Delete cell (press D twice)      Ctrl+/ → toggle comment
+M  → change to Markdown                  Ctrl+Z → undo
+Y  → change to code (Python)
+Z  → undo last cell action
+Shift+Enter → run cell + move down
+Ctrl+Shift+- → split cell at cursor
+```
+
+### The 5 JupyterLab shortcuts you'll use every session
+
+```
+1. Shift+Enter     — run current cell and move to next
+2. Esc             — go to command mode (stop typing, navigate)
+3. A or B          — insert cell above or below
+4. D, D            — delete selected cell
+5. Ctrl+Shift+C    — command palette (search everything)
+```
+
+---
+
+## 2.5 Magic commands
+
+Magic commands start with `%` (line magic) or `%%` (cell magic). They are JupyterLab/IPython-specific — they don't work in `.py` files.
+
+```{python}
+#| label: magic-timeit
+# %timeit: benchmark a single expression
+import polars as pl
+from pathlib import Path
+
+def _root(p):
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+adsl = pl.read_parquet(_root(Path.cwd()) / "data/adam/adsl.parquet")
+
+# Time how long a Polars operation takes
+%timeit adsl.filter(pl.col("SEX") == "M").select("USUBJID", "AGE").sort("AGE")
+```
+
+```{python}
+#| label: magic-who
+# %who: list all variables in memory
+x = 42
+name = "USUBJID"
+%who
+```
+
+Key magic commands for data work:
+
+| Magic | What it does |
+|---|---|
+| `%timeit expr` | Benchmark `expr`, average over many runs |
+| `%%timeit` | Benchmark entire cell |
+| `%who` | List all variables in memory |
+| `%whos` | List variables with type and value |
+| `%run script.py` | Run a Python file in the current kernel |
+| `%load_ext autoreload` | Enable auto-reload of modules |
+| `%autoreload 2` | Reload all modules before each cell execution |
+| `%debug` | Open debugger after an exception |
+| `%pdb on` | Auto-open debugger on every exception |
+| `%matplotlib inline` | Show matplotlib plots in the notebook |
+| `%matplotlib widget` | Interactive (zoomable) matplotlib plots |
+
+### `autoreload` — the essential one for library development
+
+When you're editing `src/clintools/demographics.py` and testing it in a notebook, Python won't pick up your changes unless you restart the kernel. `autoreload` fixes this:
+
+```python
+%load_ext autoreload
+%autoreload 2
+
+from clintools.demographics import subject_ae_summary
+# Now every time you save demographics.py, the import auto-reloads
+```
+
+::: {.callout-warning}
+## Pitfall: `autoreload` doesn't catch everything
+It misses: changes to class definitions that are already instantiated, C extensions, and some import patterns. When in doubt — restart kernel.
+:::
+
+---
+
+## 2.6 Configuring Polars display — `pl.Config()`
+
+This section is drawn directly from *Python Polars: The Definitive Guide* Ch 2.
+
+By default, Polars truncates wide DataFrames. You can control this:
+
+```{python}
+#| label: polars-config-show-versions
+import polars as pl
+
+# See what versions of Polars and its dependencies are installed
+pl.show_versions()
+```
+
+```{python}
+#| label: polars-config-context-manager
+import polars as pl
+import numpy as np
+from pathlib import Path
+
+def _root(p):
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+# Build a wide demo DataFrame
+rng = np.random.default_rng(42)
+demo = pl.DataFrame({
+    "USUBJID": [f"01-{i:03d}" for i in range(5)],
+    "COL_A":   rng.integers(0, 100, 5).tolist(),
+    "COL_B":   rng.integers(0, 100, 5).tolist(),
+    "COL_C":   rng.integers(0, 100, 5).tolist(),
+    "LONG_STRING": ["very_long_string_value_here"] * 5,
+})
+
+print("=== Default display ===")
+print(demo)
+
+print("\n=== With Config: show all cols, truncate strings ===")
+with pl.Config(tbl_cols=-1, fmt_str_lengths=8):
+    print(demo)
+
+# Outside the context manager — back to default
+print("\n=== Back to default ===")
+print(demo)
+```
+
+The context manager is **temporary** — settings revert when the `with` block exits. This is the clean pattern for one-off display changes.
+
+```{python}
+#| label: polars-config-decorator
+# Use @pl.Config as a decorator for a specific function only
+@pl.Config(tbl_cols=-1, tbl_rows=20)
+def show_full(df: pl.DataFrame) -> pl.DataFrame:
+    """Print df with all columns visible."""
+    print(df)
+    return df
+
+show_full(demo)
+```
+
+### Common `pl.Config` options
+
+| Option | What it controls | Useful value |
+|---|---|---|
+| `tbl_cols` | Number of columns shown | `-1` = all |
+| `tbl_rows` | Number of rows shown | `-1` = all |
+| `fmt_str_lengths` | Max string display length | `50`, `100` |
+| `tbl_width_chars` | Total table width | `120` |
+| `verbose` | Debug output during operations | `True` |
+| `set_tbl_formatting` | Table style | `"ASCII_MARKDOWN"` |
+
+```{python}
+#| label: polars-config-global
+# Set global defaults for your session (put this in a notebook's first cell)
+pl.Config.set_tbl_cols(20)       # show up to 20 columns
+pl.Config.set_fmt_str_lengths(50) # truncate strings at 50 chars
+pl.Config.set_tbl_rows(30)       # show up to 30 rows
+```
+
+::: {.callout-warning}
+## Pitfall: Global config leaks across cells
+`pl.Config.set_*` methods change the global state for the entire session. If you use them in one cell and then wonder why display looks different elsewhere, that's why. Prefer the context manager (`with pl.Config(...)`) for anything temporary.
+:::
+
+---
+
+## 2.7 Polars optional dependencies
+
+From the *Definitive Guide* Ch 2 — Polars has optional extras for different workflows:
+
+```powershell
+# Install everything (easiest)
+uv pip install "polars[all]"
+
+# Or install only what you need:
+uv pip install "polars[numpy,pyarrow]"   # NumPy interop + Arrow I/O
+uv pip install "polars[xlsx2csv,openpyxl]" # Excel read/write
+uv pip install "polars[connectorx]"       # Database connections (SQL)
+uv pip install "polars[fsspec]"           # Remote filesystems (S3, GCS)
+```
+
+For clinical work, this book's `pyproject.toml` already includes what you need (`polars`, `pyarrow`, `pyreadstat`). Install extras only when you hit a `ModuleNotFoundError`.
+
+---
+
+## 2.8 Round-tripping `.qmd` ↔ `.ipynb`
+
+A `.qmd` file is the source of truth. An `.ipynb` is a rendered artefact. You can open any `.qmd` as a notebook in JupyterLab:
+
+```powershell
+# Convert .qmd to .ipynb (one-way, for JupyterLab)
+quarto convert chapters/03-foundations.qmd
+# Creates: chapters/03-foundations.ipynb
+
+# Open in JupyterLab
+uv run jupyter lab chapters/03-foundations.ipynb
+```
+
+::: {.callout-warning}
+## Pitfall: Don't edit the `.ipynb` and expect changes in `.qmd`
+The conversion is one-way. If you edit in JupyterLab, your changes stay in the `.ipynb` only. Edit the `.qmd` directly in Positron to keep things in sync. Add `*.ipynb` to `.gitignore` — which we already did.
+:::
+
+---
+
+## 2.9 Debugging
+
+### In Positron: breakpoints
+
+1. Click in the gutter (left of line number) to set a red dot breakpoint
+2. Run the file with `Ctrl+Shift+D` (Run and Debug) or via the debug play button
+3. Execution pauses at the breakpoint — inspect variables in the Variables pane
+
+### In JupyterLab: `%debug` post-mortem
+
+```python
+# After an exception, run this in the next cell:
+%debug
+# Opens an interactive debugger at the point of failure
+# Commands: p <var> (print), n (next), c (continue), q (quit)
+```
+
+### The most common debugging pattern for Polars
+
+```{python}
+#| label: debug-polars-pattern
+import polars as pl
+from pathlib import Path
+
+def _root(p):
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+adsl = pl.read_parquet(_root(Path.cwd()) / "data/adam/adsl.parquet")
+
+# When a chain fails, break it apart to find the bad step:
+step1 = adsl.filter(pl.col("SAFFL") == "Y")
+print(f"After filter: {step1.shape}")
+
+step2 = step1.select("USUBJID", "TRT01A", "AGE")
+print(f"After select: {step2.schema}")
+
+step3 = step2.with_columns(
+    pl.col("AGE").ge(65).alias("ELDERLY")
+)
+print(f"After with_columns: {step3.head(3)}")
+# Find the step that errors, fix it, then re-chain
+```
+
+---
+
+## Recap
+
+1. **Positron** for `.qmd` and `.py` files — `Ctrl+Enter` runs in console, `F12` jumps to definition, Variables pane shows live objects.
+2. **JupyterLab** for exploration and magic commands — know command mode (`Esc`) vs edit mode (`Enter`), master `Shift+Enter`, `A`/`B`, `D,D`.
+3. **`pl.Config()`** as a context manager is the clean way to change display settings temporarily — global `set_*` methods leak across cells.
+4. **`%load_ext autoreload` + `%autoreload 2`** — put this at the top of any notebook where you're developing a library, so edits to `.py` files auto-reload.
+5. **Restart kernel first** — when output looks wrong, stale kernel state is the first suspect. Restart and run top-to-bottom before debugging further.
