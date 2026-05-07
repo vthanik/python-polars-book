@@ -106,8 +106,15 @@ This layout follows the `src/` convention — the package lives in `src/clintool
 #| label: pathlib-intro
 from pathlib import Path
 
-# Always reference your project root relative to this file
-PROJECT_ROOT = Path(__file__).parent if "__file__" in dir() else Path.cwd()
+# Walk up from CWD until we find _quarto.yml (= project root)
+# Quarto 1.9 sets CWD to the chapter's folder, not the project root
+def _find_root(p: Path) -> Path:
+    for candidate in [p, *p.parents]:
+        if (candidate / "_quarto.yml").exists():
+            return candidate
+    return p
+
+PROJECT_ROOT = _find_root(Path.cwd())
 DATA_DIR = PROJECT_ROOT / "data" / "adam"
 
 # Build paths safely — works on Windows AND Linux (Domino)
@@ -218,7 +225,12 @@ Verify:
 from pathlib import Path
 import polars as pl
 
-adam_dir = Path("data/adam")
+def _find_root(p):
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+adam_dir = _find_root(Path.cwd()) / "data" / "adam"
 for f in sorted(adam_dir.glob("*.parquet")):
     df = pl.read_parquet(f)
     print(f"{f.name:20s}  {len(df):>5} rows  {len(df.columns):>3} cols")

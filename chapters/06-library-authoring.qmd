@@ -48,6 +48,7 @@ src/ layout import flow:
 
 ```{python}
 #| label: show-pyproject
+#| eval: false
 from pathlib import Path
 print(Path("pyproject.toml").read_text(encoding="utf-8"))
 ```

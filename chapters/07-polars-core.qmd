@@ -13,7 +13,12 @@
 import polars as pl
 from pathlib import Path
 
-DATA = Path("data/adam")
+def _root(p: Path) -> Path:
+    for c in [p, *p.parents]:
+        if (c / "_quarto.yml").exists(): return c
+    return p
+
+DATA = _root(Path.cwd()) / "data" / "adam"
 ```
 
 ```{python}
@@ -54,10 +59,11 @@ print(adsl.head(3))
 
 ```{python}
 #| label: read-xpt-example
+#| eval: false
 # For SAS .xpt files directly (without prior conversion):
 import pyreadstat
-df_pd, meta = pyreadstat.read_xport("data/adam/adsl.xpt")
-adsl_from_xpt = pl.from_pandas(df_pd)
+data, meta = pyreadstat.read_xport("data/adam/adsl.xpt", output_format="dict")
+adsl_from_xpt = pl.DataFrame(data)
 
 # For .sas7bdat:
 # df_pd, meta = pyreadstat.read_sas7bdat("adsl.sas7bdat")
@@ -65,7 +71,7 @@ adsl_from_xpt = pl.from_pandas(df_pd)
 
 ```{python}
 #| label: read-csv
-penguins = pl.read_csv("data/definitive_guide/penguins.csv")
+penguins = pl.read_csv(_root(Path.cwd()) / "data/definitive_guide/penguins.csv")
 print(penguins.head(3))
 ```
 
@@ -422,7 +428,7 @@ subject_ae_summary = (
     .sort("USUBJID")
 )
 
-subject_ae_summary.write_parquet("data/adam/subject_ae_summary.parquet")
+subject_ae_summary.write_parquet(_root(Path.cwd()) / "data/adam/subject_ae_summary.parquet")
 print(subject_ae_summary.head(10))
 ```
 

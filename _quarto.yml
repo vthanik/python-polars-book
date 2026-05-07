@@ -45,10 +45,6 @@ format:
 
 execute:
   freeze: auto
-  cache: true
   warning: false
   message: false
-
-knitr:
-  opts_chunk:
-    comment: "#>"
+  execute-dir: project
